@@ -1,62 +1,49 @@
-import argparse
+import os
 from joblib import load, dump
 from sklearn.linear_model import Ridge
 from sklearn.ensemble import RandomForestRegressor
-from xgboost import XGBRegressor
-from sklearn.model_selection import GridSearchCV
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-import numpy as np
-import os
+from sklearn.metrics import mean_squared_error
 
-def train_models(X_train_path, y_train_path, out_dir):
-    print("🏋️ Training models...")
+def train_models(processed_dir="processed", models_dir="models"):
+    # Load processed data
+    print("Loading processed data...")
+    X_train = load(os.path.join(processed_dir, "X_train.joblib"))
+    X_test = load(os.path.join(processed_dir, "X_test.joblib"))
+    y_train = load(os.path.join(processed_dir, "y_train.joblib"))
+    y_test = load(os.path.join(processed_dir, "y_test.joblib"))
 
-    # Load data
-    X_train = load(X_train_path)
-    y_train = load(y_train_path)
+    os.makedirs(models_dir, exist_ok=True)
 
-    # Define candidate models
-    models = {
-        "Ridge": Ridge(),
-        "RandomForest": RandomForestRegressor(random_state=42),
-        "XGBoost": XGBRegressor(random_state=42, objective='reg:squarederror')
-    }
+    print(" Training models...")
 
-    # Define hyperparameter grids
-    params = {
-        "Ridge": {"alpha": [0.1, 1.0, 10.0]},
-        "RandomForest": {"n_estimators": [100, 200], "max_depth": [10, 20]},
-        "XGBoost": {"n_estimators": [100, 200], "learning_rate": [0.05, 0.1]}
-    }
+    # --- Ridge Regression ---
+    print("\n Training Ridge model...")
+    ridge = Ridge(alpha=1.0)
+    ridge.fit(X_train, y_train)
+    ridge_preds = ridge.predict(X_test)
+    ridge_mse = mean_squared_error(y_test, ridge_preds)
+    print(f" Ridge MSE: {ridge_mse:.2f}")
 
-    os.makedirs(out_dir, exist_ok=True)
-    best_model = None
-    best_score = float("inf")
-    best_name = ""
+    dump(ridge, os.path.join(models_dir, "ridge_model.joblib"))
 
-    # ✅ Train and evaluate each model (properly indented)
-    for name, model in models.items():
-        print(f"Training {name} model...")
+    # --- Random Forest ---
+    print("\n Training RandomForest model (faster mode)...")
+    rf = RandomForestRegressor(
+        n_estimators=100,  # Faster than 500
+        max_depth=20,      # Reasonable limit
+        n_jobs=-1,         # Use all cores
+        random_state=42
+    )
+    rf.fit(X_train, y_train)
+    rf_preds = rf.predict(X_test)
+    rf_mse = mean_squared_error(y_test, rf_preds)
+    print(f" RandomForest MSE: {rf_mse:.2f}")
 
-        grid = GridSearchCV(model, params[name], cv=5, scoring="neg_mean_squared_error")
-        grid.fit(X_train, y_train)
+    dump(rf, os.path.join(models_dir, "random_forest_model.joblib"))
 
-        best_model_for_this = grid.best_estimator_
-        best_score_for_this = -grid.best_score_
-        print(f"{name} best score (MSE): {best_score_for_this:.4f}")
+    print("\n Models saved in:", models_dir)
+    print("\n Training complete!")
 
-        # Save model
-        dump(best_model_for_this, os.path.join(out_dir, f"{name}_model.joblib"))
 
-        # Track best model overall
-        if best_score_for_this < best_score:
-            best_model = best_model_for_this
-            best_score = best_score_for_this
-            best_name = name
-
-    print(f"\nBest model: {best_name} with MSE {best_score:.4f}")
-    dump(best_model, os.path.join(out_dir, "best_model.joblib"))
-
-# ✅ Add main block so you can run it directly
 if __name__ == "__main__":
-    train_models("processed/X_train.joblib", "processed/y_train.joblib", "models/")
+    train_models()
